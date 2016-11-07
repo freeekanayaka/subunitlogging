@@ -1,64 +1,96 @@
+import time
+
 from logging import (
+    Formatter,
     Logger,
     INFO,
 )
 
 from unittest import TestResult
 
-from testtools import TestCase
-from testtools import ExtendedToStreamDecorator
-from testtools.testresult.doubles import StreamResult
+from six import b
 
-from systemfixtures import FakeTime
+from mimeparse import parse_mime_type
 
-from subunit.test_results import AutoTimingTestResultDecorator
+from testtools import (
+    TestCase,
+    TestResultDecorator,
+)
 
 from subunitlogging import SubunitHandler
+from subunitlogging.testing import StreamResultDouble
 
 
 class SubunitHandlerTest(TestCase):
 
-    def test_logging(self):
-        """Tests can add log records to the subunit stream."""
-        fixture = self.useFixture(FakeTime())
-        fixture.set(seconds=1478383023.22)
+    def setUp(self):
+        super(SubunitHandlerTest, self).setUp()
+        self.result = StreamResultDouble()
+        self.handler = SubunitHandler()
+        self.handler.setResult(self.result)
+        self.logger = Logger("test")
+        self.logger.addHandler(self.handler)
+        self.logger.setLevel(INFO)
 
-        logger = Logger("test")
-        logger.addHandler(SubunitHandler())
-        logger.setLevel(INFO)
+    def test_default(self):
+        """The handler has sane defaults."""
+        self.logger.info("hello")
 
-        class DummyTest(TestCase):
+        event = self.result.getEvent(0)
+        self.assertEqual("status", event.name)
+        self.assertIsNone(event.test_id)
+        self.assertEqual("test.log", event.file_name)
+        self.assertEqual(b("hello\n"), event.file_bytes)
+        _, _, parameters = parse_mime_type(event.mime_type)
+        self.assertEqual("python", parameters["language"])
+        self.assertEqual("default", parameters["format"])
+        self.assertAlmostEqual(
+            time.time(), time.mktime(event.timestamp.timetuple()), delta=5)
 
-            def test(self):
-                logger.info("hello")
+    def test_format(self):
+        """A custom formatter and format name can be specified."""
+        formatter = Formatter("[%(name)s:%(levelname)s] %(message)s")
+        self.handler.setFormatter(formatter, "myformat")
 
-        result = StreamResult()
-        wrapper = AutoTimingTestResultDecorator(
-            ExtendedToStreamDecorator(result))
+        self.logger.info("hello")
 
-        test = DummyTest(methodName="test")
-        test(wrapper)
-        self.assertTrue(wrapper.wasSuccessful())
+        event = self.result.getEvent(0)
+        self.assertEqual(b("[test:INFO] hello\n"), event.file_bytes)
+        _, _, parameters = parse_mime_type(event.mime_type)
+        self.assertEqual("python", parameters["language"])
+        self.assertEqual("myformat", parameters["format"])
 
-        event = result._events[-2]
+    def test_file_name(self):
+        """A custom file name can be specified."""
+        self.handler.setFileName("my.log")
 
-        self.assertEqual("status", event[0])
-        self.assertEqual(1346236702, int(event[-1].strftime("%s")))
+        self.logger.info("hello")
 
-    def test_no_stream(self):
-        """If no StreamResult is detected, the log record is dropped."""
+        event = self.result.getEvent(0)
+        self.assertEqual("my.log", event.file_name)
 
-        logger = Logger("test")
-        logger.addHandler(SubunitHandler())
-        logger.setLevel(INFO)
+    def test_test_id(self):
+        """A custom test ID can be specified."""
+        self.handler.setTestId("my.test")
 
-        class DummyTest(TestCase):
+        self.logger.info("hello")
 
-            def test(self):
-                logger.info("hello")
+        event = self.result.getEvent(0)
+        self.assertEqual("my.test", event.test_id)
 
-        result = TestResult()
+    def test_not_stream_result(self):
+        """
+        If the given result object doesn't implement the StreamResult API,
+        any log record will be discarded.
+        """
+        self.handler.setResult(TestResultDecorator(TestResult()))
+        self.assertIsNone(self.logger.info("hello"))  # It doesn't trace back
 
-        test = DummyTest(methodName="test")
-        test(result)
-        self.assertTrue(result.wasSuccessful())
+    def test_close(self):
+        """
+        When the handler is closed, an EOF packet is written.
+        """
+        self.handler.close()
+        event = self.result.getEvent(0)
+        self.assertEqual(b(""), event.file_bytes)
+        self.assertTrue(event.eof)
