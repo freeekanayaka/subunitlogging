@@ -1,24 +1,21 @@
 import time
 
+from testtools import TestResult
+
 from logging import (
     Formatter,
     Logger,
     INFO,
 )
 
-from unittest import TestResult
-
 from six import b
 
 from mimeparse import parse_mime_type
 
-from testtools import (
-    TestCase,
-    TestResultDecorator,
-)
+from testtools import TestCase
 
-from subunitlogging import SubunitHandler
-from subunitlogging.testing import StreamResultDouble
+from testlogging import SubunitHandler
+from testlogging.testing import StreamResultDouble
 
 
 class SubunitHandlerTest(TestCase):
@@ -46,6 +43,12 @@ class SubunitHandlerTest(TestCase):
         self.assertEqual("default", parameters["format"])
         self.assertAlmostEqual(
             time.time(), time.mktime(event.timestamp.timetuple()), delta=5)
+
+    def test_decorated(self):
+        self.addCleanup(self.handler.setResult, self.result)
+        self.handler.setResult(TestResult())
+        error = self.assertRaises(RuntimeError, self.logger.info, "hello")
+        self.assertEqual("Not a stream result", str(error))
 
     def test_format(self):
         """A custom formatter and format name can be specified."""
@@ -77,14 +80,6 @@ class SubunitHandlerTest(TestCase):
 
         event = self.result.getEvent(0)
         self.assertEqual("my.test", event.test_id)
-
-    def test_not_stream_result(self):
-        """
-        If the given result object doesn't implement the StreamResult API,
-        any log record will be discarded.
-        """
-        self.handler.setResult(TestResultDecorator(TestResult()))
-        self.assertIsNone(self.logger.info("hello"))  # It doesn't trace back
 
     def test_close(self):
         """

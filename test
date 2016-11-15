@@ -6,7 +6,7 @@ from coverage.control import Coverage
 from subunit.run import main
 
 
-coverage = Coverage(source=["subunitlogging"], auto_data=True)
+coverage = Coverage(source=["testlogging"], auto_data=True)
 coverage.exclude("# pragma: no cover")
 
 coverage.start()

@@ -1,7 +1,7 @@
 from .handler import SubunitHandler
-from .suite import SubunitLoggingSuite
+from .suite import LoggingSuite
 
 __all__ = [
     "SubunitHandler",
-    "SubunitLoggingSuite",
+    "LoggingSuite",
 ]

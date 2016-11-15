@@ -1,12 +1,13 @@
 from datetime import datetime
 
 from logging import Handler
-from extras import safe_hasattr
 
 from six import b
 
 from testtools.content_type import ContentType
 from testtools.testresult.real import utc
+
+from testlogging.result import get_stream_result
 
 
 class SubunitHandler(Handler):
@@ -17,6 +18,7 @@ class SubunitHandler(Handler):
         self._file_name = "test.log"
         self._format = None
         self._test_id = None
+        self._runnable = True
 
     def setResult(self, result):
         self._result = result
@@ -28,8 +30,9 @@ class SubunitHandler(Handler):
         super(SubunitHandler, self).setFormatter(fmt)
         self._format = name
 
-    def setTestId(self, test_id):
+    def setTestId(self, test_id, runnable=True):
         self._test_id = test_id
+        self._runnable = runnable
 
     def emit(self, record):
         self._write(("%s\n" % self.format(record)).encode("utf-8"))
@@ -38,27 +41,15 @@ class SubunitHandler(Handler):
         self._write(b(""), eof=True)
 
     def _write(self, file_bytes, eof=False):
-
-        # Figure out is our result object implements the StreamResult API (i.e.
-        # the 'status' method). Since testtools decorates and nests result
-        # objects, we need to traverse the decoration, until we either find
-        # a StreamResult-like decorated result, or we reach the bottom.
-        result = self._result
-        while not safe_hasattr(result, "status"):
-            decorated = getattr(result, "decorated", None)
-            if decorated:
-                result = decorated
-                continue
-            return
-
-        timestamp = datetime.now(utc)
-
+        result = get_stream_result(self._result)
         result.status(
             test_id=self._test_id,
-            timestamp=timestamp,
-            file_name=self._file_name, mime_type=self._mime_type(),
+            runnable=self._runnable,
+            file_name=self._file_name,
             file_bytes=file_bytes,
-            eof=eof)
+            eof=eof,
+            mime_type=self._mime_type(),
+            timestamp=datetime.now(utc))
 
     def _mime_type(self):
         """
